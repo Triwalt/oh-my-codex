@@ -1,0 +1,13 @@
+interface:
+  display_name: "Pipeline"
+  short_description: "Stage-based orchestration workflow"
+  brand_color: "#2563EB"
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "claude_code"
+      description: "Run stage jobs"
+    - type: "mcp"
+      value: "claude_code_status"
+      description: "Track stage completion"

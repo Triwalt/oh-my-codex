@@ -1,0 +1,13 @@
+interface:
+  display_name: "Swarm"
+  short_description: "Coordinated multi-worker execution"
+  brand_color: "#0284C7"
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "claude_code"
+      description: "Launch worker jobs"
+    - type: "mcp"
+      value: "claude_code_status"
+      description: "Monitor worker jobs"

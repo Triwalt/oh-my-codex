@@ -1,62 +1,80 @@
 ---
 name: omx-plan
-description: "Strategic planning for complex tasks. Use when the user says 'plan this', 'plan the', 'how should we', or when a task is too complex to start coding immediately. Produces a structured plan before any implementation."
+description: "Strategic planning for complex tasks. Supports versioned iteration and Codex-friendly command-style triggers such as /plan and plan v2."
 ---
 
 # Planning Mode
 
-Structured planning: analyze → design → document → get approval.
+Structured planning for Codex: scope -> analyze -> design -> iterate -> approve.
+
+## Command-Style Triggers
+
+Treat the following as planning mode requests:
+- `/plan <task>`
+- `$omx-plan <task>`
+- "plan this", "how should we", "make a plan"
+- "iterate plan", "revise plan v2", "update plan"
 
 ## Workflow
 
 ### Phase 1: Gather Context
-1. Explore the codebase if one exists: file structure, tech stack, patterns
-2. Identify constraints and requirements
-3. Save context: `omx_state_write(mode: "plan", data: { phase: "gathering" })`
+1. Explore the codebase and constraints.
+2. Identify explicit requirements and hidden assumptions.
+3. Persist state:
+   `omx_state_write(mode: "plan", data: { phase: "gathering", active: true })`
 
 ### Phase 2: Analyze
-1. Break the problem into components
-2. Identify dependencies between components
-3. Assess complexity and risks
-4. If needed, delegate deep analysis to Claude Code for codebase-specific insights
+1. Break the problem into components and dependencies.
+2. Identify risk, unknowns, and decision points.
+3. If needed, delegate deep analysis to `claude_code` for codebase-specific facts.
 
-### Phase 3: Design
-1. Propose an approach with clear rationale
-2. List alternatives considered and why they were rejected
-3. Define the implementation order (what depends on what)
-4. Estimate scope: files to create/modify, approximate size of changes
+### Phase 3: Draft Plan v1
+1. Propose approach and rejected alternatives.
+2. Define implementation order and touched files.
+3. Persist draft metadata:
+   `omx_state_write(mode: "plan", data: { phase: "drafted", iteration: 1, currentVersion: "v1" })`
 
-### Phase 4: Document
-Present the plan as:
+### Phase 4: Iteration Loop (v2, v3, ...)
+1. Collect user feedback and classify as scope, constraint, or quality concern.
+2. Produce next version with a clear delta section.
+3. Persist version history:
+   `omx_state_write(mode: "plan", data: { phase: "iterating", iteration: N, currentVersion: "vN" })`
+4. Continue until user approves or requests consensus planning (`omx-ralplan`).
+
+### Phase 5: Approval and Handoff
+1. Mark approved state:
+   `omx_state_write(mode: "plan", data: { phase: "approved", approved: true })`
+2. Offer execution via `omx-autopilot`.
+
+## Output Template
 
 ```markdown
 ## Goal
-<what we're building>
+<what we are building>
+
+## Plan Version
+vN
 
 ## Approach
-<how we'll build it and why>
+<how and why>
 
 ## Steps
-1. <step> — <files affected>
-2. <step> — <files affected>
-...
+1. <step> - <files>
+2. <step> - <files>
 
-## Risks
-- <risk and mitigation>
+## Risks and Mitigations
+- <risk> -> <mitigation>
 
 ## Verification
-- <how we'll know it works>
-```
+- <tests/checks>
 
-### Phase 5: Approval
-1. Present the plan to the user
-2. Wait for approval or feedback
-3. If approved, offer to execute via autopilot: "Want me to execute this plan?"
+## Delta From Previous Version
+- <what changed since vN-1>
+```
 
 ## Rules
 
-- **Plans are for the user**, not for you. Write clearly and concisely.
-- **Don't implement** during planning. Plan only.
-- **Consider alternatives.** Always mention at least one alternative approach.
-- **Be specific.** Name exact files, functions, and patterns.
-- **Save the plan** to state so it persists: `omx_state_write(mode: "plan", data: { plan: "..." })`
+- Planning mode does not implement code.
+- Always include at least one alternative path.
+- Name concrete files/functions/patterns whenever possible.
+- Keep a versioned trail in `plan` state so iterations survive context loss.

@@ -1,69 +1,80 @@
 ---
 name: omx-autopilot
-description: "Full autonomous execution from idea to working code. Use when the user wants something built end-to-end without hand-holding. Activates on phrases like 'build me', 'create a', 'I want a', 'autopilot', or any request that implies complete implementation."
+description: "Full autonomous execution from idea to working code. Uses serial mode for linear tasks and ultrawork-style parallel execution for independent workstreams."
 ---
 
 # Autopilot Mode
 
-Autonomous execution: analyze → plan → implement → verify → done.
+Autonomous execution for Codex: analyze -> plan -> implement -> verify -> done.
 
 ## Workflow
 
 ### Phase 1: Understand
-1. Read the request carefully
-2. If the project exists, explore it: read key files, understand structure, tech stack
-3. If anything is ambiguous, ask ONE round of clarifying questions — then proceed
+1. Read the request and detect target work folder.
+2. Explore key files and project conventions.
+3. Ask at most one clarification round only when ambiguity materially changes implementation.
 
 ### Phase 2: Plan
-1. Break the task into concrete steps (max 10)
-2. Write the plan to state: `omx_state_write(mode: "autopilot", data: { phase: "planning", steps: [...], currentStep: 0 })`
-3. List what files will be created/modified
+1. Break work into concrete steps (max 10).
+2. Detect parallelizable workstreams (independent file ownership).
+3. Choose execution mode:
+   - `serial`: default for linear or ambiguous-ownership tasks.
+   - `parallel`: only when non-overlapping ownership is clear.
+4. Persist plan state:
+   `omx_state_write(mode: "autopilot", data: { phase: "planning", steps: [...], currentStep: 0, executionMode: "serial", active: true })`
 
 ### Phase 3: Implement
 For each step:
-1. Update state: `omx_state_write(mode: "autopilot", data: { phase: "implementing", currentStep: N })`
-2. Delegate to Claude Code: `claude_code(prompt: "Your work folder is /path\n\n<step details>", workFolder: "/path")`
-3. Poll with `claude_code_status` until complete
-4. Verify the step worked before moving to the next
+1. Update progress state with `currentStep` and `completedSteps`.
+2. If `executionMode = serial`, run single-track fix loop:
+   - reproduce failures first,
+   - apply minimal edits,
+   - re-run same verification command,
+   - avoid open-ended clarification drift.
+3. If `executionMode = parallel` and 2+ independent streams exist, run ultrawork-style parallel jobs (bounded concurrency).
+4. Poll jobs with `claude_code_status` and capture outputs.
 
 ### Phase 4: Verify
-1. Delegate verification to Claude Code: run tests, type check, lint
-2. If failures, delegate fixes to Claude Code
-3. Loop until clean
+1. Run tests, typecheck, and lint (or project-specific verification commands).
+2. If failures occur, delegate fixes and re-run verification.
+3. Do not finish until verification is clean or blockers are explicit.
 
 ### Phase 5: Complete
-1. Clear state: `omx_state_clear(mode: "autopilot")`
-2. Summarize what was built, what files were changed, how to run it
+1. Mark complete and clear state:
+   - `omx_state_write(mode: "autopilot", data: { phase: "complete" })`
+   - `omx_state_clear(mode: "autopilot")`
+2. Report what changed, where, and how to run it.
+
+## Codex Reliability Controls
+
+- Treat task as actionable by default in serial mode; avoid repeated "what should I do" loops.
+- Keep prompts short, explicit, and verify-command-centric.
+- Use bounded retries (max 2) before escalating from serial to pipeline.
+- Only escalate to parallel modes when ownership map is explicit.
 
 ## Rules
 
-- **Never stop mid-task.** If a step fails, fix it and continue.
-- **Always verify.** Run tests/typecheck after implementation.
-- **Delegate all code changes** to Claude Code via `claude_code` tool.
-- **Track progress** with `omx_state_write` so state survives context loss.
-- **Be autonomous.** Don't ask for permission on implementation details — just build it.
+- Never stop mid-task without a concrete blocker report.
+- Prefer serial execution unless ownership boundaries are clearly parallelizable.
+- Avoid concurrent writes to the same file group.
+- Track progress in state to survive context loss.
+- Always verify implementation claims before finalizing.
 
-## State Schema
+## Suggested State Schema
 
 ```json
 {
   "phase": "planning | implementing | verifying | complete",
-  "steps": ["step 1 description", "step 2 description"],
+  "executionMode": "serial | parallel",
+  "steps": ["step description"],
   "currentStep": 0,
   "completedSteps": [],
+  "parallel": {
+    "enabled": false,
+    "workers": [],
+    "jobIds": []
+  },
   "errors": [],
   "active": true
 }
-```
-
-## Delegation Prompt Template
-
-```
-Your work folder is {workFolder}
-
-CONTEXT: {what has been done so far}
-
-TASK: {current step description}
-
-VERIFICATION: After completing, run {test/typecheck command} and confirm it passes.
 ```

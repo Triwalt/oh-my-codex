@@ -1,6 +1,6 @@
 {
   "name": "omx-mcp",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "oh-my-codex: Orchestration MCP server for Codex CLI",
   "type": "module",
   "main": "server.mjs",
@@ -9,5 +9,9 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.11.2"
+  },
+  "scripts": {
+    "lint": "node --check server.mjs",
+    "smoke": "node smoke-test.mjs"
   }
 }

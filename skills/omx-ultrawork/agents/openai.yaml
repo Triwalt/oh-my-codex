@@ -1,0 +1,10 @@
+interface:
+  display_name: "Ultrawork"
+  short_description: "Parallel multi-agent orchestration for Codex"
+  brand_color: "#0EA5E9"
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "claude_code"
+      description: "Async worker delegation"

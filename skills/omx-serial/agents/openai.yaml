@@ -1,0 +1,10 @@
+interface:
+  display_name: "Serial"
+  short_description: "Deterministic single-agent linear workflow"
+  brand_color: "#14B8A6"
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "claude_code"
+      description: "Single-agent execution and verification loop"

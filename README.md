@@ -1,213 +1,136 @@
 # oh-my-codex (omx)
 
-Orchestration layer for [OpenAI Codex CLI](https://github.com/openai/codex) — gives Codex superpowers through async [Claude Code](https://github.com/anthropics/claude-code) delegation, structured workflows, and persistent memory.
+Orchestration layer for [OpenAI Codex CLI](https://github.com/openai/codex) that adds:
 
-## What it does
+- async Claude Code delegation (`claude_code` + `claude_code_status`)
+- workflow state and session notes (`omx_state_*`, `omx_note_*`)
+- per-project memory (`omx_memory_*`)
 
-**The problem:** Codex CLI is great at planning but limited in execution. Claude Code is great at execution but needs direction. MCP tool calls timeout on long tasks.
+## Why this exists
 
-**The solution:** omx bridges them with an async job system that never times out, plus structured workflows (autopilot, TDD, code review, etc.) that teach Codex how to delegate effectively.
+MCP tool calls can time out on long running coding tasks. `omx` uses a job model:
 
-```
-You (idea) → Codex (planning + orchestration) → Claude Code (autonomous execution)
-                                                      ↓
-                                               reads, writes, edits files
-                                               runs tests, fixes failures
-                                               git commits, branch management
-                                               ...all without timeout limits
-```
+1. `claude_code(...)` starts work and returns a job ID quickly.
+2. `claude_code_status(jobId)` long-polls for progress.
+3. Repeat status calls until done.
 
-## Features
+This keeps MCP calls short while the delegated task continues in the background.
 
-### Async Claude Code Delegation
-No more timeouts. The MCP server uses a **long-polling job pattern**:
+## Production hardening in this fork
 
-1. `claude_code(prompt)` — starts task, returns job ID in <1 second
-2. `claude_code_status(jobId)` — long-polls up to 25s, returns results or "still running"
-3. Repeat until done — works for tasks that take minutes or hours
+This version adds practical safety and reliability controls:
 
-### 7 Workflow Skills
+- configurable permission mode (`OMX_CLAUDE_PERMISSION_MODE=skip|respect`)
+- strict `workFolder` validation (must be absolute existing directory)
+- optional path allow-list (`OMX_ALLOWED_WORKFOLDER_ROOTS`)
+- mode-name validation for state files (prevents path traversal)
+- capped running jobs and bounded output buffers
+- optional max runtime per job
+- smoke test script (`npm run smoke`)
+- safer installer defaults (does not overwrite AGENTS.md unless requested)
+- Windows installer (`install.ps1`)
 
-| Skill | Trigger | What it does |
-|-------|---------|-------------|
-| **omx-autopilot** | "build me", "create a" | Plan → Implement → Verify → Done |
-| **omx-plan** | "plan this" | Structured planning before implementation |
-| **omx-research** | "research", "compare" | Multi-source research with citations |
-| **omx-code-review** | "review code" | Comprehensive code review via Claude Code |
-| **omx-tdd** | "tdd", "test first" | Red → Green → Refactor cycle |
-| **omx-analyze** | "debug", "investigate" | Deep debugging and root cause analysis |
-| **omx-help** | "help" | Shows all capabilities |
+## Included workflows
 
-### Persistent State & Memory
+This repository ships the following workflow skills:
 
-| Tool | Purpose |
-|------|---------|
-| `omx_state_*` | Track workflow progress (survives conversation turns) |
-| `omx_note_*` | Session notepad with priority/working/manual sections |
-| `omx_memory_*` | Per-project memory that persists across sessions |
+- `omx-serial` (deterministic single-agent mode, serial-first reliability)
+- `omx-plan` / `omx-ralplan`
+- `omx-autopilot`
+- `omx-pipeline`
+- `omx-ultrawork` / `omx-swarm`
+- `omx-cancel`
+- `omx-research` / `omx-analyze` / `omx-code-review` / `omx-tdd`
+
 
 ## Requirements
 
-- [Node.js](https://nodejs.org) v20+
-- [Codex CLI](https://github.com/openai/codex) (`npm install -g @openai/codex`)
-- [Claude Code](https://github.com/anthropics/claude-code) (`npm install -g @anthropic-ai/claude-code`)
-- Claude Code must have `--dangerously-skip-permissions` accepted (run `claude --dangerously-skip-permissions` once to accept)
+- Node.js 20+
+- Codex CLI (`npm install -g @openai/codex`)
+- Claude Code (`npm install -g @anthropic-ai/claude-code`)
 
 ## Install
 
+### Windows (recommended on Windows hosts)
+
+```powershell
+cd oh-my-codex
+./install.ps1
+```
+
+Optional flags:
+
+```powershell
+./install.ps1 -InstallAgents -OverwriteSkills -PermissionMode skip
+```
+
+### macOS / Linux
+
 ```bash
-git clone https://github.com/staticpayload/oh-my-codex.git
 cd oh-my-codex
 bash install.sh
 ```
 
-The installer:
-1. Copies the MCP server to `~/.codex/mcp-servers/omx/`
-2. Installs npm dependencies
-3. Copies 8 skills to `~/.codex/skills/`
-4. Installs `AGENTS.md` to `~/.codex/` (backs up existing)
-5. Adds the omx MCP server entry to `~/.codex/config.toml`
-6. Verifies the server starts correctly
-
-## Usage
-
-Start Codex and just talk naturally:
+Optional env vars:
 
 ```bash
-codex
+INSTALL_AGENTS=true OVERWRITE_SKILLS=true OMX_PERMISSION_MODE=skip bash install.sh
 ```
 
-### Autopilot
-> "Build me a REST API with user authentication using Express and JWT"
-
-Codex plans the implementation, delegates each step to Claude Code, verifies tests pass, and delivers working code.
-
-### Planning
-> "Plan the migration from our monolith to microservices"
-
-Produces a structured plan with steps, risks, and verification criteria before any code changes.
-
-### Code Review
-> "Review the code in src/auth/"
-
-Claude Code reads every file, analyzes for bugs, security issues, performance problems, and returns severity-rated findings.
-
-### TDD
-> "Use TDD to add email validation to the signup form"
-
-Writes failing tests first, then minimal implementation, then refactors — the classic Red-Green-Refactor cycle.
-
-### Research
-> "Research the best state management options for React in 2025"
-
-Searches multiple sources (Perplexity, Exa, Tavily), cross-references findings, produces a synthesized report.
-
-### Debug
-> "Investigate why the payment webhook fails on retry"
-
-Claude Code traces the execution path, identifies the root cause, and recommends a fix.
-
-## Architecture
-
-```
-~/.codex/
-├── config.toml                    # MCP server registration
-├── AGENTS.md                      # Global orchestration instructions
-├── mcp-servers/
-│   └── omx/
-│       ├── server.mjs             # The MCP server (12 tools)
-│       └── package.json
-├── skills/
-│   ├── omx-autopilot/             # Autonomous execution
-│   ├── omx-plan/                  # Strategic planning
-│   ├── omx-research/              # Multi-source research
-│   ├── omx-code-review/           # Code quality review
-│   ├── omx-tdd/                   # Test-driven development
-│   ├── omx-analyze/               # Debugging & analysis
-│   ├── omx-help/                  # Usage guide
-│   └── claude-code-mcp/           # Claude Code delegation guide
-└── .omx/
-    ├── state/                     # Workflow state files
-    └── notepad.json               # Session memory
-```
-
-### MCP Tools (12 total)
-
-| Tool | Category | Description |
-|------|----------|-------------|
-| `claude_code` | Delegation | Start async Claude Code task |
-| `claude_code_status` | Delegation | Long-poll for results (25s) |
-| `claude_code_cancel` | Delegation | Cancel running job |
-| `claude_code_list` | Delegation | List all jobs |
-| `omx_state_read` | State | Read workflow state |
-| `omx_state_write` | State | Write/update workflow state |
-| `omx_state_clear` | State | Clear workflow state |
-| `omx_state_list` | State | List active workflows |
-| `omx_note_read` | Notepad | Read session notes |
-| `omx_note_write` | Notepad | Write session notes |
-| `omx_memory_read` | Memory | Read project memory |
-| `omx_memory_write` | Memory | Write project memory |
-
-## How the async pattern works
-
-The original [`@steipete/claude-code-mcp`](https://github.com/steipete/claude-code-mcp) server blocks until Claude Code finishes. If the task takes longer than Codex's `tool_timeout_sec`, it dies.
-
-omx fixes this with a **long-polling job pattern**:
-
-```
-Codex                           omx MCP Server              Claude CLI
-  │                                │                            │
-  ├─ claude_code(prompt) ─────────►│── spawn claude ───────────►│
-  │◄── jobId (instant, <1s) ──────┤                            │ (working...)
-  │                                │                            │
-  ├─ claude_code_status(id) ──────►│── wait up to 25s ────────►│ (still working)
-  │◄── "running" + output tail ───┤                            │
-  │                                │                            │
-  ├─ claude_code_status(id) ──────►│── wait up to 25s... ─────►│ (done!)
-  │◄── "completed" + full output ─┤                            │
-```
-
-Every tool call returns in <25 seconds. Claude Code itself runs with no time limit.
-
-## Configuration
-
-The installer handles everything. To manually configure, add to `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.omx]
-command = "node"
-args = ["/path/to/.codex/mcp-servers/omx/server.mjs"]
-startup_timeout_sec = 15
-tool_timeout_sec = 30
-```
-
-### Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `MCP_OMX_DEBUG` | Set `true` for verbose logging to stderr |
-| `CLAUDE_CLI_NAME` | Override Claude binary path |
-
-## Uninstall
+## Verify
 
 ```bash
-# Remove MCP server
-rm -rf ~/.codex/mcp-servers/omx
-
-# Remove skills
-rm -rf ~/.codex/skills/omx-* ~/.codex/skills/claude-code-mcp
-
-# Remove config entry (edit manually)
-# Remove the [mcp_servers.omx] block from ~/.codex/config.toml
-
-# Restore AGENTS.md backup if desired
-mv ~/.codex/AGENTS.md.bak ~/.codex/AGENTS.md
+cd mcp-server
+npm install
+npm run lint
+npm run smoke
 ```
 
-## Inspired by
+Optional (validate skills presence):
 
-- [oh-my-claudecode](https://github.com/anthropics/claude-code) — Multi-agent orchestration for Claude Code CLI
-- [claude-code-mcp](https://github.com/steipete/claude-code-mcp) — The original Claude Code MCP server
+```bash
+ls ../skills
+```
+
+## MCP tools (12)
+
+- `claude_code`
+- `claude_code_status`
+- `claude_code_cancel`
+- `claude_code_list`
+- `omx_state_read`
+- `omx_state_write`
+- `omx_state_clear`
+- `omx_state_list`
+- `omx_note_read`
+- `omx_note_write`
+- `omx_memory_read`
+- `omx_memory_write`
+
+## Config reference
+
+The installer adds an `mcp_servers.omx` block to `~/.codex/config.toml`.
+
+Useful env vars (inside `mcp_servers.omx.env`):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OMX_CLAUDE_PERMISSION_MODE` | `skip` | `skip` uses Claude's non-interactive dangerous mode; `respect` keeps permission flow. |
+| `OMX_MAX_RUNNING_JOBS` | `3` | Concurrent `claude_code` jobs limit. |
+| `OMX_MAX_COMPLETED_JOBS` | `100` | In-memory history size for completed jobs. |
+| `OMX_MAX_OUTPUT_CHARS` | `200000` | Output cap per stream (`stdout`/`stderr`) per job. |
+| `OMX_MAX_PROMPT_CHARS` | `120000` | Prompt length cap. |
+| `OMX_MAX_WAIT_SECONDS` | `25` | Max long-poll wait for `claude_code_status`. |
+| `OMX_MAX_JOB_RUNTIME_SECONDS` | `0` | Hard timeout for a job (`0` disables). |
+| `OMX_ALLOWED_WORKFOLDER_ROOTS` | _(unset)_ | Optional path allow-list for `workFolder` (use OS path delimiter). |
+| `MCP_OMX_DEBUG` | `false` | Verbose server logs to stderr. |
+| `CLAUDE_CLI_NAME` | _(auto)_ | Override Claude CLI binary path. |
+
+## Codex and oh-my-claudecode
+
+`oh-my-claudecode` is built for Claude Code's workflow model, not Codex's native skill format.
+
+You can still reuse ideas and prompts, but direct drop-in compatibility is limited. `omx` is the bridge approach: Codex orchestrates, Claude Code executes via MCP.
 
 ## License
 

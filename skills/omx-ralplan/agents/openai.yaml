@@ -1,0 +1,10 @@
+interface:
+  display_name: "Ralplan"
+  short_description: "Iterative consensus planning"
+  brand_color: "#F97316"
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "claude_code"
+      description: "Optional deep analysis for planning"

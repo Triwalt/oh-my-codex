@@ -2,62 +2,59 @@
 set -euo pipefail
 
 # oh-my-codex installer
-# Installs the omx MCP server, skills, and AGENTS.md for Codex CLI
+# Installs the omx MCP server and skills for Codex CLI.
 
-BOLD='\033[1m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONFIG_PATH="$CODEX_DIR/config.toml"
+SERVER_DIR="$CODEX_DIR/mcp-servers/omx"
+SERVER_PATH="$SERVER_DIR/server.mjs"
 
-CODEX_DIR="$HOME/.codex"
-OMX_REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+INSTALL_AGENTS="${INSTALL_AGENTS:-false}"          # true|false
+OVERWRITE_SKILLS="${OVERWRITE_SKILLS:-false}"      # true|false
+OMX_PERMISSION_MODE="${OMX_PERMISSION_MODE:-respect}" # skip|respect
 
-info()  { echo -e "${CYAN}[omx]${NC} $1"; }
-ok()    { echo -e "${GREEN}[omx]${NC} $1"; }
-warn()  { echo -e "${YELLOW}[omx]${NC} $1"; }
-
-echo -e "${BOLD}"
-echo "  ╔══════════════════════════════════════╗"
-echo "  ║        oh-my-codex installer         ║"
-echo "  ║   Orchestration layer for Codex CLI  ║"
-echo "  ╚══════════════════════════════════════╝"
-echo -e "${NC}"
-
-# ── Prerequisites ──────────────────────────────────────────────────────────
-
-if ! command -v node &>/dev/null; then
-  echo "Error: Node.js is required (v20+). Install from https://nodejs.org"
+if [[ "$OMX_PERMISSION_MODE" != "skip" && "$OMX_PERMISSION_MODE" != "respect" ]]; then
+  echo "[omx] Error: OMX_PERMISSION_MODE must be 'skip' or 'respect'."
   exit 1
 fi
 
-if ! command -v codex &>/dev/null; then
+info() { echo "[omx] $1"; }
+warn() { echo "[omx][warn] $1"; }
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "[omx] Error: Node.js is required (v20+)."
+  exit 1
+fi
+
+if ! command -v codex >/dev/null 2>&1; then
   warn "Codex CLI not found. Install: npm install -g @openai/codex"
-  warn "Continuing anyway — you'll need it to use omx."
 fi
 
-if ! command -v claude &>/dev/null; then
+if ! command -v claude >/dev/null 2>&1; then
   warn "Claude CLI not found. Install: npm install -g @anthropic-ai/claude-code"
-  warn "Continuing anyway — claude_code delegation requires it."
 fi
 
-# ── MCP Server ─────────────────────────────────────────────────────────────
+mkdir -p "$SERVER_DIR"
+cp "$REPO_DIR/mcp-server/server.mjs" "$SERVER_PATH"
+cp "$REPO_DIR/mcp-server/package.json" "$SERVER_DIR/package.json"
+cp "$REPO_DIR/mcp-server/smoke-test.mjs" "$SERVER_DIR/smoke-test.mjs"
 
-info "Installing MCP server..."
-mkdir -p "$CODEX_DIR/mcp-servers/omx"
-cp "$OMX_REPO_DIR/mcp-server/server.mjs" "$CODEX_DIR/mcp-servers/omx/server.mjs"
-cp "$OMX_REPO_DIR/mcp-server/package.json" "$CODEX_DIR/mcp-servers/omx/package.json"
+info "Installing MCP server dependencies..."
+(
+  cd "$SERVER_DIR"
+  npm install --omit=dev --silent
+)
 
-cd "$CODEX_DIR/mcp-servers/omx"
-npm install --silent 2>/dev/null
-ok "MCP server installed at $CODEX_DIR/mcp-servers/omx/"
-
-# ── Skills ─────────────────────────────────────────────────────────────────
-
-info "Installing skills..."
 SKILLS=(
   omx-autopilot
+  omx-serial
   omx-plan
+  omx-ralplan
+  omx-pipeline
+  omx-swarm
+  omx-ultrawork
+  omx-cancel
   omx-research
   omx-code-review
   omx-tdd
@@ -68,65 +65,91 @@ SKILLS=(
 
 mkdir -p "$CODEX_DIR/skills"
 for skill in "${SKILLS[@]}"; do
-  rm -rf "$CODEX_DIR/skills/$skill"
-  cp -r "$OMX_REPO_DIR/skills/$skill" "$CODEX_DIR/skills/$skill"
+  src="$REPO_DIR/skills/$skill"
+  dst="$CODEX_DIR/skills/$skill"
+
+  if [[ ! -d "$src" ]]; then
+    warn "Skipping missing skill source: $src"
+    continue
+  fi
+
+  if [[ -d "$dst" ]]; then
+    if [[ "$OVERWRITE_SKILLS" == "true" ]]; then
+      backup="$dst.bak.$(date +%s)"
+      mv "$dst" "$backup"
+      info "Backed up existing $skill to $backup"
+    else
+      warn "Skill $skill already exists. Keeping existing copy (set OVERWRITE_SKILLS=true to replace)."
+      continue
+    fi
+  fi
+
+  cp -R "$src" "$dst"
 done
-ok "Installed ${#SKILLS[@]} skills"
 
-# ── AGENTS.md ──────────────────────────────────────────────────────────────
-
-if [ -f "$CODEX_DIR/AGENTS.md" ]; then
-  info "Existing AGENTS.md found — backing up to AGENTS.md.bak"
-  cp "$CODEX_DIR/AGENTS.md" "$CODEX_DIR/AGENTS.md.bak"
-fi
-cp "$OMX_REPO_DIR/AGENTS.template.md" "$CODEX_DIR/AGENTS.md"
-ok "AGENTS.md installed"
-
-# ── Config ─────────────────────────────────────────────────────────────────
-
-CONFIG="$CODEX_DIR/config.toml"
-OMX_SERVER_PATH="$CODEX_DIR/mcp-servers/omx/server.mjs"
-
-if [ -f "$CONFIG" ] && grep -q "mcp_servers.omx" "$CONFIG" 2>/dev/null; then
-  ok "config.toml already has omx entry — skipping"
+if [[ "$INSTALL_AGENTS" == "true" ]]; then
+  mkdir -p "$CODEX_DIR"
+  if [[ -f "$CODEX_DIR/AGENTS.md" ]]; then
+    backup="$CODEX_DIR/AGENTS.md.bak.$(date +%s)"
+    cp "$CODEX_DIR/AGENTS.md" "$backup"
+    info "Backed up existing AGENTS.md to $backup"
+  fi
+  cp "$REPO_DIR/AGENTS.template.md" "$CODEX_DIR/AGENTS.md"
+  info "Installed AGENTS.md template"
 else
-  info "Adding omx to config.toml..."
-  cat >> "$CONFIG" <<EOF
+  warn "Skipped AGENTS.md install (set INSTALL_AGENTS=true to install)."
+fi
+
+mkdir -p "$CODEX_DIR"
+touch "$CONFIG_PATH"
+
+if grep -q "\[mcp_servers\.omx\]" "$CONFIG_PATH" 2>/dev/null; then
+  warn "config.toml already contains [mcp_servers.omx]; not modifying existing block."
+else
+  cat >> "$CONFIG_PATH" <<EOF
 
 # oh-my-codex orchestration server
 [mcp_servers.omx]
 command = "node"
-args = ["$OMX_SERVER_PATH"]
+args = ["$SERVER_PATH"]
 startup_timeout_sec = 15
-tool_timeout_sec = 30
+tool_timeout_sec = 45
+
+[mcp_servers.omx.env]
+# skip: autonomous mode (fewer prompts)
+# respect: ask Claude Code to use normal permission flow
+OMX_CLAUDE_PERMISSION_MODE = "$OMX_PERMISSION_MODE"
+OMX_MAX_RUNNING_JOBS = "3"
 EOF
-  ok "Added omx MCP server to config.toml"
+  info "Added omx MCP server block to $CONFIG_PATH"
 fi
 
-# ── Verify ─────────────────────────────────────────────────────────────────
+info "Running initialize verification..."
+VERIFY_PAYLOAD='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"install-verify","version":"1.0.0"}}}'
+VERIFY_OUT=$(printf "%s\n" "$VERIFY_PAYLOAD" | node "$SERVER_PATH" 2>/dev/null | head -c 400 || true)
 
-info "Verifying server starts..."
-VERIFY=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"verify","version":"1.0.0"}}}' | node "$OMX_SERVER_PATH" 2>/dev/null | head -c 200)
-
-if echo "$VERIFY" | grep -q '"claude-code-async\|"omx"'; then
-  ok "Server verification passed"
+if echo "$VERIFY_OUT" | grep -q '"name":"omx"'; then
+  info "Initialize verification passed"
 else
-  warn "Server verification inconclusive — may still work. Test with: codex"
+  warn "Initialize verification inconclusive. You can test manually with: codex"
 fi
 
-# ── Done ───────────────────────────────────────────────────────────────────
+info "Running smoke test..."
+(
+  cd "$SERVER_DIR"
+  npm run smoke --silent
+)
+info "Smoke test passed"
 
-echo ""
-echo -e "${BOLD}${GREEN}Installation complete!${NC}"
-echo ""
-echo "  What was installed:"
-echo "    MCP server:  $CODEX_DIR/mcp-servers/omx/server.mjs"
-echo "    Skills (8):  $CODEX_DIR/skills/omx-*"
-echo "    AGENTS.md:   $CODEX_DIR/AGENTS.md"
-echo "    Config:      $CONFIG"
-echo ""
-echo "  Next steps:"
-echo "    1. Start Codex:  codex"
-echo "    2. Try it:       \"build me a hello world express server\""
-echo "    3. See help:     \"omx help\""
-echo ""
+cat <<EOF
+
+[omx] Installation complete.
+[omx] MCP server: $SERVER_PATH
+[omx] Skills dir:  $CODEX_DIR/skills
+[omx] Config:      $CONFIG_PATH
+
+Next steps:
+  1) Start Codex: codex
+  2) Ask: "omx help"
+  3) Optional hardening: set OMX_ALLOWED_WORKFOLDER_ROOTS in mcp_servers.omx.env
+EOF

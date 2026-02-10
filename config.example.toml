@@ -1,21 +1,32 @@
-# oh-my-codex — Add this to your ~/.codex/config.toml
-#
-# The omx MCP server provides:
-#   - claude_code / claude_code_status / claude_code_cancel / claude_code_list
-#   - omx_state_read / omx_state_write / omx_state_clear / omx_state_list
-#   - omx_note_read / omx_note_write
-#   - omx_memory_read / omx_memory_write
+# Add this to ~/.codex/config.toml
 
 [mcp_servers.omx]
 command = "node"
-args = ["$HOME/.codex/mcp-servers/omx/server.mjs"]  # Update path after install
+args = ["$HOME/.codex/mcp-servers/omx/server.mjs"]
 startup_timeout_sec = 15
-tool_timeout_sec = 30
+tool_timeout_sec = 45
 
-# Optional: enable debug logging (goes to stderr)
-# [mcp_servers.omx.env]
+[mcp_servers.omx.env]
+# skip: autonomous mode (fewer prompts)
+# respect: normal Claude permission flow
+OMX_CLAUDE_PERMISSION_MODE = "skip"
+
+# Reliability controls
+OMX_MAX_RUNNING_JOBS = "3"
+OMX_MAX_COMPLETED_JOBS = "100"
+OMX_MAX_OUTPUT_CHARS = "200000"
+OMX_MAX_PROMPT_CHARS = "120000"
+OMX_MAX_WAIT_SECONDS = "25"
+
+# Optional: hard timeout per Claude job (0 disables)
+# OMX_MAX_JOB_RUNTIME_SECONDS = "1800"
+
+# Optional: restrict work folders to trusted roots (OS path delimiter)
+# Linux/macOS example:
+# OMX_ALLOWED_WORKFOLDER_ROOTS = "/home/me/projects:/home/me/sandbox"
+# Windows example:
+# OMX_ALLOWED_WORKFOLDER_ROOTS = "D:\\Repos;D:\\MCPs\\oh-my-codex"
+
+# Optional debugging
 # MCP_OMX_DEBUG = "true"
-
-# Optional: override Claude CLI binary
-# [mcp_servers.omx.env]
-# CLAUDE_CLI_NAME = "/path/to/claude"
+# CLAUDE_CLI_NAME = "/custom/path/to/claude"

@@ -1,0 +1,10 @@
+interface:
+  display_name: "Cancel"
+  short_description: "Stop running workflows and jobs"
+  brand_color: "#DC2626"
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "claude_code_cancel"
+      description: "Cancel running Claude Code jobs"
