@@ -25,16 +25,16 @@ This keeps orchestration responsive while delegated execution continues in backg
 
 ## Repository Layout
 
-- `mcp-server/` ！ OMX MCP server implementation
-- `skills/` ！ Codex skills (`omx-*` + `claude-code-mcp`)
-- `install.sh` / `install.ps1` ！ installers
-- `config.example.toml` ！ example Codex MCP config
+- `mcp-server/` - OMX MCP server implementation
+- `skills/` - Codex skills (`omx-*` + `claude-code-mcp`)
+- `install.sh` / `install.ps1` - installers
+- `config.example.toml` - example Codex MCP config
 
 ---
 
 ## Included Workflows
 
-- `omx-serial` ！ deterministic single-agent mode (serial-first reliability)
+- `omx-serial` - deterministic single-agent mode (serial-first reliability)
 - `omx-plan` / `omx-ralplan`
 - `omx-autopilot`
 - `omx-pipeline`
