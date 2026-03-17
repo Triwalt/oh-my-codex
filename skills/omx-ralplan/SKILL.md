@@ -5,75 +5,26 @@ description: "Iterative consensus planning workflow inspired by OMC ralplan. Use
 
 # Ralplan Mode
 
-Consensus-driven planning loop for high-risk or cross-cutting work.
+Ralplan is the consensus planning loop for risky or cross-cutting work.
 
-## Command-Style Triggers
+Apply the runtime contract at `skills/omx-help/references/omx-runtime-contract.md` first.
 
-Treat the following as ralplan activation:
-- `/ralplan <task>`
-- `$omx-ralplan <task>`
-- "consensus plan", "iterate with critic", "ralplan"
+## Iteration Lenses
 
-## Loop Structure
-
-Each iteration has three lenses:
-1. Planner: produce or update candidate plan.
-2. Architect: stress test technical feasibility and dependency order.
+1. Planner: propose the next candidate plan.
+2. Architect: test feasibility, sequencing, and dependencies.
 3. Critic: challenge risks, blind spots, and verification quality.
 
 ## Workflow
 
-### Phase 1: Initialize
 1. Capture goal, scope, constraints, and success criteria.
-2. Persist initial state:
-   `omx_state_write(mode: "ralplan", data: { phase: "iterating", iteration: 1, maxIterations: 5, active: true })`
-
-### Phase 2: Iterative Consensus (max 5)
-For iteration N:
-1. Draft `Plan vN`.
-2. Add architect review notes.
-3. Add critic findings with severity tags.
-4. Resolve findings and produce `Plan vN+1` when needed.
-5. Persist progress after each iteration.
-
-### Phase 3: Exit Conditions
-Stop when one condition is met:
-- User approves the plan.
-- Critic has no high-severity objections.
-- Max iteration reached (surface unresolved risks explicitly).
-
-### Phase 4: Handoff
-1. Save final plan snapshot to state.
-2. Recommend execution with `omx-autopilot`.
-3. Clear state only when user confirms finalization.
-
-## Output Template
-
-```markdown
-## Goal
-<target outcome>
-
-## Consensus Iteration
-vN / max 5
-
-## Candidate Plan
-<steps with file-level scope>
-
-## Architect Review
-- <dependency or feasibility notes>
-
-## Critic Findings
-- [high|medium|low] <finding>
-
-## Decision Log
-- <what changed this round and why>
-
-## Open Risks
-- <remaining risks>
-```
+2. Run the three-lens loop for up to 5 iterations.
+3. Make deltas explicit from one version to the next.
+4. Stop when the user approves, the critic has no high-severity objections, or the iteration cap is reached.
+5. If state tools are unavailable, keep the full decision trail inline instead of relying on remote state.
 
 ## Rules
 
-- Ralplan is planning-only; do not implement code in this mode.
-- Keep deltas explicit between iterations.
-- Always include verification strategy before marking consensus.
+- Ralplan is planning-only.
+- Always include a verification strategy before calling the plan converged.
+- End with a clear execution recommendation.

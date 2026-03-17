@@ -136,6 +136,32 @@ async function main() {
     const clearPayload = parseToolText(clearState);
     assert(clearPayload?.ok === true, "omx_state_clear failed");
 
+    const writeNote = await client.send("tools/call", {
+      name: "omx_note_write",
+      arguments: {
+        section: "working",
+        workspace: "smoke-workspace",
+        content: "smoke note entry",
+      },
+    });
+    const writeNotePayload = parseToolText(writeNote);
+    assert(writeNotePayload?.ok === true, "omx_note_write failed");
+
+    const readNote = await client.send("tools/call", {
+      name: "omx_note_read",
+      arguments: {
+        section: "all",
+        workspace: "smoke-workspace",
+      },
+    });
+    const notePayload = parseToolText(readNote);
+    assert(notePayload?.version === 2, "omx_note_read should return notepad v2");
+    assert(
+      Array.isArray(notePayload?.working) &&
+        notePayload.working.some((entry) => entry?.content === "smoke note entry"),
+      "omx_note_read returned unexpected workspace notes",
+    );
+
     console.log("Smoke test passed.");
   } finally {
     proc.kill("SIGTERM");

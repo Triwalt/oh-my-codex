@@ -7,6 +7,7 @@ Orchestration layer for [OpenAI Codex CLI](https://github.com/openai/codex).
 - persistent workflow state (`omx_state_*`)
 - session notes (`omx_note_*`)
 - project memory (`omx_memory_*`)
+- serial-first fallback when live omx runtime is unavailable
 
 ---
 
@@ -42,6 +43,11 @@ This keeps orchestration responsive while delegated execution continues in backg
 - `omx-cancel`
 - `omx-research` / `omx-analyze` / `omx-code-review` / `omx-tdd`
 
+Each `omx-*` skill now starts from a shared runtime contract:
+- `skills/omx-help/references/omx-runtime-contract.md`
+- preflight active Codex config before assuming `omx_*` or `claude_code*` tools exist
+- default to serial-first fallback when delegation is unavailable
+
 Command-style triggers (examples):
 - `/serial <task>`
 - `/plan <task>`
@@ -71,6 +77,7 @@ This fork includes:
 - mode-name validation for state files (path traversal protection)
 - bounded running jobs / output buffers / prompt size
 - optional max runtime per job
+- workspace-scoped notepad compatibility
 - smoke test script (`npm run smoke`)
 
 ---
@@ -80,6 +87,7 @@ This fork includes:
 - Node.js 20+
 - Codex CLI (`npm install -g @openai/codex`)
 - Claude Code (`npm install -g @anthropic-ai/claude-code`)
+- Python 3.11+ for optional runtime maintenance and benchmark scripts under `eval/`
 
 ---
 
@@ -131,6 +139,18 @@ ls ../skills
 In Codex startup logs, you should see:
 - `mcp: omx ready`
 
+Optional runtime health check:
+
+```bash
+python eval/omx_runtime_maintenance.py audit
+```
+
+Optional local benchmark:
+
+```bash
+python eval/run_skill_matrix_eval.py --trials 1
+```
+
 ---
 
 ## MCP Tools (12)
@@ -178,6 +198,8 @@ Key env vars in `[mcp_servers.omx.env]`:
 `omx` is a bridge approach for Codex:
 - Codex handles orchestration and workflow state
 - Claude Code executes delegated coding tasks
+
+When active Codex config does not expose `mcp_servers.omx`, the optimized skills are designed to fall back to native Codex execution instead of assuming a live omx runtime.
 
 ---
 

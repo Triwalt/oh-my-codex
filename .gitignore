@@ -2,3 +2,7 @@ node_modules/
 .DS_Store
 *.log
 .omx/
+eval/eval_outputs/
+eval/snapshots/
+eval/**/__pycache__/
+eval/**/*.pyc

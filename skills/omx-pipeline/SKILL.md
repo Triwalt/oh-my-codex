@@ -5,96 +5,26 @@ description: "Stage-based workflow orchestration for Codex. Supports sequential 
 
 # Pipeline Mode
 
-Pipeline mode chains work through explicit stages so each stage receives prior outputs.
+Pipeline mode is for explicit stage handoff: small stages, clear outputs, hard verification.
 
-## Command-Style Triggers
+Apply the runtime contract at `skills/omx-help/references/omx-runtime-contract.md` first.
 
-Treat these as pipeline activation:
-- `/pipeline <preset> <task>`
-- `/pipeline <custom stages> <task>`
-- `$omx-pipeline <task>`
-- "run a pipeline", "stage-based workflow"
+## Use When
 
-## Built-in Presets
-
-- `review`: explore -> architect -> critic -> implement
-- `implement`: plan -> implement -> verify
-- `debug`: locate -> diagnose -> fix -> verify
-- `research`: external research + codebase analysis -> synthesis
-- `refactor`: map dependencies -> strategy -> execute -> regression checks
-- `security`: audit -> fix -> re-audit
+- diagnosis and implementation should be separated
+- the task benefits from an audit trail
+- serial execution is still preferred, but one large prompt would be too blurry
 
 ## Workflow
 
-### Phase 1: Build Pipeline Graph
-1. Parse preset or custom stage chain.
-2. Validate stage dependencies.
-3. Persist state:
-   `omx_state_write(mode: "pipeline", data: { phase: "planned", active: true, stages: [...] })`
-
-### Phase 2: Execute Stages
-1. Run stage in order unless marked as a parallel stage group.
-2. Delegate each stage to `claude_code`.
-3. Capture stage output artifacts and decisions.
-4. Feed structured context into next stage.
-
-### Phase 3: Error Handling
-On stage failure, choose one strategy:
-- `retry`: rerun same stage once.
-- `fallback`: escalate to stronger analysis/fix stage.
-- `abort`: stop pipeline and report failure context.
-Persist decision in state.
-
-### Phase 4: Final Verification
-1. Run final verification commands for task scope.
-2. Confirm end-state matches acceptance criteria.
-3. Clear state on success.
-
-## Stage Handoff Contract
-
-Each stage should pass this minimal context:
-
-```json
-{
-  "originalTask": "...",
-  "currentStage": "diagnose",
-  "previousStages": [
-    {
-      "stage": "locate",
-      "result": "...",
-      "changedFiles": ["..."]
-    }
-  ],
-  "constraints": ["..."],
-  "acceptanceCriteria": ["..."]
-}
-```
+1. Pick a short stage chain such as `diagnose -> implement -> verify`.
+2. Keep each stage scoped to one purpose and pass only the minimal context forward.
+3. If delegation is unavailable, run the stages locally with native Codex prompts.
+4. Retry a failed stage once; then either fall back to serial repair or stop with a concrete blocker.
+5. Do not skip the final verification stage for code changes.
 
 ## Rules
 
-- Keep stage goals narrowly scoped.
-- Do not skip verification stage for code-changing pipelines.
-- Preserve an explicit decision log when fallback paths are used.
 - Prefer short stages over one giant stage.
-
-## Suggested State Schema
-
-```json
-{
-  "active": true,
-  "phase": "planned | running | verifying | complete | failed",
-  "pipelineId": "uuid",
-  "stages": [
-    {
-      "name": "locate",
-      "type": "analysis",
-      "status": "completed",
-      "jobId": "abcd1234",
-      "summary": "..."
-    }
-  ],
-  "currentStageIndex": 1,
-  "errorPolicy": "retry",
-  "decisionLog": []
-}
-```
+- Use parallel stage groups only when the runtime contract says parallel is safe.
+- If state tools are available, store only concise stage summaries and clear state on success.

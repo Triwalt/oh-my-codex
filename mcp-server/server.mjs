@@ -32,6 +32,7 @@ const HOME = homedir();
 const OMX_DIR = join(HOME, ".codex", ".omx");
 const STATE_DIR = join(OMX_DIR, "state");
 const NOTEPAD_PATH = join(OMX_DIR, "notepad.json");
+const DEFAULT_NOTE_WORKSPACE = "__global__";
 
 const MAX_COMPLETED_JOBS = parsePositiveInt(process.env.OMX_MAX_COMPLETED_JOBS, 100);
 const MAX_RUNNING_JOBS = parsePositiveInt(process.env.OMX_MAX_RUNNING_JOBS, 3);
@@ -250,20 +251,112 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function normalizeNoteWorkspace(value, fallback = DEFAULT_NOTE_WORKSPACE) {
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  if (trimmed.length > 260) {
+    throw new Error("workspace must be 260 characters or fewer.");
+  }
+  return trimmed;
+}
+
+function sanitizeNoteEntries(entries) {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .filter(
+      (entry) =>
+        isObject(entry) &&
+        typeof entry.content === "string" &&
+        typeof entry.timestamp === "string",
+    )
+    .map((entry) => ({
+      content: entry.content,
+      timestamp: entry.timestamp,
+    }));
+}
+
+function emptyWorkspaceBucket() {
+  return { working: [], manual: [] };
+}
+
+function normalizeWorkspaceBucket(bucket) {
+  const raw = isObject(bucket) ? bucket : {};
+  return {
+    working: sanitizeNoteEntries(raw.working),
+    manual: sanitizeNoteEntries(raw.manual),
+  };
+}
+
 // ==========================================================================
 // Notepad helpers
 // ==========================================================================
 function readNotepad() {
   const raw = readJSON(NOTEPAD_PATH, {});
+  const activeWorkspace = normalizeNoteWorkspace(raw.active_workspace);
+  const workspaces = {};
+
+  if (isObject(raw.workspaces)) {
+    for (const [workspaceName, bucket] of Object.entries(raw.workspaces)) {
+      try {
+        workspaces[normalizeNoteWorkspace(workspaceName)] = normalizeWorkspaceBucket(bucket);
+      } catch {}
+    }
+  }
+
+  if (!workspaces[activeWorkspace]) {
+    workspaces[activeWorkspace] = emptyWorkspaceBucket();
+  }
+
+  const legacyWorking = sanitizeNoteEntries(raw.working);
+  const legacyManual = sanitizeNoteEntries(raw.manual);
+  if (workspaces[activeWorkspace].working.length === 0 && legacyWorking.length > 0) {
+    workspaces[activeWorkspace].working = legacyWorking;
+  }
+  if (workspaces[activeWorkspace].manual.length === 0 && legacyManual.length > 0) {
+    workspaces[activeWorkspace].manual = legacyManual;
+  }
+
   return {
+    version: 2,
+    active_workspace: activeWorkspace,
     priority: typeof raw.priority === "string" ? raw.priority : "",
-    working: Array.isArray(raw.working) ? raw.working : [],
-    manual: Array.isArray(raw.manual) ? raw.manual : [],
+    working: workspaces[activeWorkspace].working,
+    manual: workspaces[activeWorkspace].manual,
+    workspaces,
   };
 }
 
 function writeNotepad(np) {
-  writeJSON(NOTEPAD_PATH, np);
+  const normalized = readNotepad();
+  normalized.priority = typeof np?.priority === "string" ? np.priority : normalized.priority;
+  normalized.active_workspace = normalizeNoteWorkspace(np?.active_workspace, normalized.active_workspace);
+
+  if (isObject(np?.workspaces)) {
+    normalized.workspaces = {};
+    for (const [workspaceName, bucket] of Object.entries(np.workspaces)) {
+      try {
+        normalized.workspaces[normalizeNoteWorkspace(workspaceName)] = normalizeWorkspaceBucket(bucket);
+      } catch {}
+    }
+  }
+
+  if (!normalized.workspaces[normalized.active_workspace]) {
+    normalized.workspaces[normalized.active_workspace] = emptyWorkspaceBucket();
+  }
+
+  const activeBucket = normalized.workspaces[normalized.active_workspace];
+  if (Array.isArray(np?.working)) {
+    activeBucket.working = sanitizeNoteEntries(np.working);
+  }
+  if (Array.isArray(np?.manual)) {
+    activeBucket.manual = sanitizeNoteEntries(np.manual);
+  }
+
+  normalized.working = activeBucket.working;
+  normalized.manual = activeBucket.manual;
+  normalized.version = 2;
+  writeJSON(NOTEPAD_PATH, normalized);
 }
 
 // ==========================================================================
@@ -417,6 +510,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             enum: ["all", "priority", "working", "manual"],
             description: "Section to read. Default: all.",
           },
+          workspace: {
+            type: "string",
+            description:
+              "Optional logical workspace bucket. Defaults to the active workspace.",
+          },
         },
       },
     },
@@ -431,6 +529,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             type: "string",
             enum: ["priority", "working", "manual"],
             description: "Section to write to.",
+          },
+          workspace: {
+            type: "string",
+            description:
+              "Optional logical workspace bucket. Defaults to the active workspace.",
           },
           content: { type: "string", description: "Content to write." },
         },
@@ -789,11 +892,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "omx_note_read": {
         const np = readNotepad();
         const section = args?.section || "all";
+        const workspace = normalizeNoteWorkspace(args?.workspace, np.active_workspace);
+        const bucket = np.workspaces[workspace] || emptyWorkspaceBucket();
 
-        if (section === "all") return reply(np);
+        if (section === "all") {
+          return reply({
+            ...np,
+            active_workspace: workspace,
+            working: bucket.working,
+            manual: bucket.manual,
+          });
+        }
         if (section === "priority") return reply({ priority: np.priority });
-        if (section === "working") return reply({ working: np.working });
-        if (section === "manual") return reply({ manual: np.manual });
+        if (section === "working") return reply({ workspace, working: bucket.working });
+        if (section === "manual") return reply({ workspace, manual: bucket.manual });
 
         return reply("Error: invalid section.", true);
       }
@@ -818,24 +930,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         const np = readNotepad();
+        const workspace = normalizeNoteWorkspace(args?.workspace, np.active_workspace);
+        np.active_workspace = workspace;
+        if (!np.workspaces[workspace]) {
+          np.workspaces[workspace] = emptyWorkspaceBucket();
+        }
+        const bucket = np.workspaces[workspace];
 
         if (section === "priority") {
           np.priority = content;
         } else if (section === "working") {
-          np.working.push({ content, timestamp: new Date().toISOString() });
+          bucket.working.push({ content, timestamp: new Date().toISOString() });
           const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-          np.working = np.working.filter(
+          bucket.working = bucket.working.filter(
             (entry) =>
               isObject(entry) &&
               typeof entry.timestamp === "string" &&
               new Date(entry.timestamp).getTime() > cutoff,
           );
         } else {
-          np.manual.push({ content, timestamp: new Date().toISOString() });
+          bucket.manual.push({ content, timestamp: new Date().toISOString() });
         }
 
+        np.working = bucket.working;
+        np.manual = bucket.manual;
         writeNotepad(np);
-        return reply({ ok: true, section });
+        return reply({ ok: true, section, workspace });
       }
 
       // ================================================================
